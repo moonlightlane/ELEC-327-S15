@@ -19,9 +19,13 @@ int VALUE;			//value to store temperature
 int MIN_TEMP;		//minimum temperature
 int MAX_TEMP;		//maximum temperature
 int TEMP_RANGE;		//temperature range read from sensor
-int RANGE = 16;		//actual value range for duty cycle
+int RANGE = 12;		//actual value range for duty cycle
 int a;				//variable to convert from TEMP_RANGE to RANGE
 int b;				//variable to convert from TEMP_RANGE to RANGE
+int RED_STEP = 0;
+int BLUE_STEP = 0;
+int TA1CCR1_MAX;
+int TA1CCR2_MAX;
 /**********************/
 
 void main(void){
@@ -39,8 +43,8 @@ void main(void){
 	/**********************/
 
 	/* pin configuration  */
-	P2DIR |= BIT1 + BIT5; 			// pin2.1 and pin2.5 are selected as output
-	P2SEL |= BIT1 + BIT5; 			// pin2.1 and pin2.5 are selected for PWM
+	P2DIR |= BIT1 + BIT4; 			// pin2.1 and pin2.5 are selected as output
+	P2SEL |= BIT1 + BIT4; 			// pin2.1 and pin2.5 are selected for PWM
 	/**********************/
 
 	/*timerA configuration*/
@@ -75,19 +79,21 @@ void main(void){
 	while (1) {
 		_bis_SR_register(GIE + LPM3_bits); 	//global interrupt enable and enter low power mode
 		ADC10CTL0 |= ADC10SC + ENC; 		// ADC10 start conversion
-		_bis_SR_register(GIE + LPM3_bits); 		//global interrupt enable and enter low power mode
+		_bis_SR_register(LPM3_bits); 		//global interrupt enable and enter low power mode
 		if (VALUE >= MAX_TEMP-5) {
-			TA1CCR1 = TA1CCR0;  			//change duty cycle to the ith intensity level
-			TA1CCR2 = 0;					//change duty cycle to the ith intensity level
+			TA1CCR1_MAX = TA1CCR0;  			//change duty cycle to the ith intensity level
+			TA1CCR2_MAX = 0;					//change duty cycle to the ith intensity level
 		}
 		else if (VALUE <= MIN_TEMP+1) {
-			TA1CCR1 = 0;  					//change duty cycle to the ith intensity level
-			TA1CCR2 = TA1CCR0;				//change duty cycle to the ith intensity level
+			TA1CCR1_MAX = 0;  					//change duty cycle to the ith intensity level
+			TA1CCR2_MAX = TA1CCR0;				//change duty cycle to the ith intensity level
 		}
 		else {
-			TA1CCR1 = TA1CCR0 * (VALUE - MIN_TEMP)/RANGE;  		//change duty cycle to the ith intensity level
-			TA1CCR2 = TA1CCR0 * (MAX_TEMP - VALUE)/RANGE;	//change duty cycle to the ith intensity level
+			TA1CCR1_MAX = TA1CCR0 * (VALUE - MIN_TEMP)/RANGE;  		//change duty cycle to the ith intensity level
+			TA1CCR2_MAX = TA1CCR0 * (MAX_TEMP - VALUE)/RANGE;	//change duty cycle to the ith intensity level
 		}
+		RED_STEP = TA1CCR1_MAX/12;
+		BLUE_STEP = TA1CCR2_MAX/12;
 		_bis_SR_register(LPM3_bits);  		//enter low power mode 3 and enable interrupt
 
 	}
@@ -96,10 +102,19 @@ void main(void){
 
 #pragma vector = WDT_VECTOR					//WDT interval mode interrupt. Frequency = 6000/512 = 11.72Hz
 __interrupt void WDT_ISR(void){				//can name the actual function anything
-	if (counter >= 3) {						//if statement to exit the ISA approx. 0.25 second a time (4Hz)
-		_bic_SR_register_on_exit(LPM3_bits);//enter low power mode 3 and enable interrupt
+	if (counter < 13) {
+		TA1CCR1 = TA1CCR1 + RED_STEP;  //change duty cycle to the ith intensity level
+		TA1CCR2 = TA1CCR2 + BLUE_STEP;	//change duty cycle to the ith intensity level
+	}
+	else  {
+		TA1CCR1 = TA1CCR1 - RED_STEP;  //change duty cycle to the ith intensity level
+		TA1CCR2 = TA1CCR2 - BLUE_STEP;	//change duty cycle to the ith intensity level
+	}
+	if (counter > 23) {					//if statement to exit the ISA approx. 2 seconds a time (0.5Hz)
+		TA1CCR1 = 0;
+		TA1CCR2 = 0;
 		counter = 0;						//reset counter
-
+		_bic_SR_register_on_exit(LPM3_bits);//enter low power mode 3 and enable interrupt
 	}
 	counter++;								//increment counter
 }
