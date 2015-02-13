@@ -1,6 +1,6 @@
 /*
  * ELEC 327 Spring15 Lab03
- * Coding up the mood ring
+ * Coding up the mood ring - part 1
  *
  * The code below uses Timer A0 and Timer A1 to generate two
  * PWM signals, such that the LEDs connected to the corresponding

@@ -1,31 +1,39 @@
 /*
  * ELEC 327 Spring15 Lab03
- * Coding up the mood ring
+ * Coding up the mood ring - bonus
  *
  * BLUE LED: PORT2.1, RED LED: PORT2.5
  *
+ * Heartbeat cycle "mood ring".
+ *
+ * The intensities of both red and blue LED gradually change from 0, to their
+ * respective maximum brightness, and back to 0. This pattern is repeated at
+ * a frequency of 0.5Hz. The maximum brightness of each of the LED is controlled
+ * by the temperature. The maximum and minimum temperature is set before the LEDs
+ * are turned on. When detected temperature equals or is smaller than minimum
+ * temperature, maximum brightness of blue LED is set to duty period (it cannot
+ * be bigger), and maximum brightness of red LED is set to 0 (turned off).
+ * Similarly, when detected temperature equals or is greater than maximum
+ * temperature, maximum brightness of blue LED is set to 0, and maximum brightness
+ * of red LED is set to duty period. When detected temperature is between max and min
+ * temperature range, maximum brightness of red LED goes up with temperature, and
+ * maximum brightness of blue LED goes down with temperature.
+ *
  * Author: 			Zichao Wang
- * Date Modified:	Feb 9, 2015
+ * Date Modified:	Feb 12, 2015
  *
  */
-#include <msp430g2553.h>		//must include so compiler knows what each variable means
+#include <msp430g2553.h>
 
 /*   global variables  */
-int i = 0;			//counter for change LED intensity level
-int DIRECTION = 1;	//LED intensity change direction
 int counter = 1;	//counter for ISA service
-int step = 16;		//step of intensity change
 int VALUE;			//value to store temperature
 int MIN_TEMP;		//minimum temperature
 int MAX_TEMP;		//maximum temperature
-int TEMP_RANGE;		//temperature range read from sensor
-int RANGE = 12;		//actual value range for duty cycle
-int a;				//variable to convert from TEMP_RANGE to RANGE
-int b;				//variable to convert from TEMP_RANGE to RANGE
-int RED_STEP = 0;
-int BLUE_STEP = 0;
-int TA1CCR1_MAX;
-int TA1CCR2_MAX;
+int RED_STEP = 0;	//step of brightness change for red LED
+int BLUE_STEP = 0;	//step of brightness change for blue LED
+int TA1CCR1_MAX;	//maximum brightness for red LED
+int TA1CCR2_MAX;	//maximum brightness for blue LED
 /**********************/
 
 void main(void){
@@ -43,12 +51,12 @@ void main(void){
 	/**********************/
 
 	/* pin configuration  */
-	P2DIR |= BIT1 + BIT4; 			// pin2.1 and pin2.5 are selected as output
-	P2SEL |= BIT1 + BIT4; 			// pin2.1 and pin2.5 are selected for PWM
+	P2DIR |= BIT1 + BIT5; 			// pin2.1 and pin2.5 are selected as output
+	P2SEL |= BIT1 + BIT5; 			// pin2.1 and pin2.5 are selected for PWM
 	/**********************/
 
 	/*timerA configuration*/
-	TA1CCR0 = 80;              // PWM period: 6kHz clock gives 6000/16=375Hz
+	TA1CCR0 = 80;             	// PWM period: 6kHz clock gives 6000/16=375Hz
 	TA1CCR1 = 0;              	// PWM duty cycle. 0% initially
 	TA1CCR2 = 0;              	// PWM duty cycle. 100% initially
 	TA1CCTL0 = OUTMOD_7;		// TA0CCR0 toggle mode
@@ -64,37 +72,39 @@ void main(void){
 	/**********************/
 
 	/*   min temp setup   */
+	/* Temperature calibration. Get the first reading from ADC as the
+	 * minimum temperature. Based on that, and based on experiments, offsets
+	 * are added to both minimum temperature and maximum temperature for
+	 * optimal observation effects.
+	 */
 	__delay_cycles(500);				//wait for a while for reference voltage to stable
 	ADC10CTL0 |= ADC10SC + ENC; 		//ADC10 start conversion
 	while (ADC10CTL1 & ADC10BUSY);		//wait for conversion to finish
 	ADC10CTL0 &= ~ENC;					//disable ADC
-	MIN_TEMP = ADC10MEM;			//get minimum temperature
-	MAX_TEMP = MIN_TEMP + 16;			//add 16 steps to get max temperature
-	//TEMP_RANGE = MAX_TEMP - MIN_TEMP;	//calculate temperature range from sensor reading
-	//a = RANGE/TEMP_RANGE;				//set up conversion constant a
-	//b = -MIN_TEMP*RANGE/TEMP_RANGE;	//set up conversion constant b
+	MIN_TEMP = ADC10MEM+2;				//get minimum temperature
+	MAX_TEMP = MIN_TEMP + 8;			//add 16 steps to get max temperature
 	/**********************/
 
 	// infinite loop to change LED intensity continuously
 	while (1) {
-		_bis_SR_register(GIE + LPM3_bits); 	//global interrupt enable and enter low power mode
-		ADC10CTL0 |= ADC10SC + ENC; 		// ADC10 start conversion
-		_bis_SR_register(LPM3_bits); 		//global interrupt enable and enter low power mode
-		if (VALUE >= MAX_TEMP-5) {
-			TA1CCR1_MAX = TA1CCR0;  			//change duty cycle to the ith intensity level
-			TA1CCR2_MAX = 0;					//change duty cycle to the ith intensity level
+		_bis_SR_register(GIE + LPM3_bits); 						//global interrupt enable and enter low power mode
+		ADC10CTL0 |= ADC10SC + ENC; 							// ADC10 start conversion
+		_bis_SR_register(LPM3_bits); 							//global interrupt enable and enter low power mode
+		if (VALUE >= MAX_TEMP) {								//when temperature is too high
+			TA1CCR1_MAX = TA1CCR0;  							//set maximum brightness of red LED
+			TA1CCR2_MAX = 0;									//set maximum brightness of blue LED
 		}
-		else if (VALUE <= MIN_TEMP+1) {
-			TA1CCR1_MAX = 0;  					//change duty cycle to the ith intensity level
-			TA1CCR2_MAX = TA1CCR0;				//change duty cycle to the ith intensity level
+		else if (VALUE <= MIN_TEMP+2) {							//when temperature is too low
+			TA1CCR1_MAX = 0;  									//set maximum brightness of red LED
+			TA1CCR2_MAX = TA1CCR0;								//set maximum brightness of blue LED
 		}
-		else {
-			TA1CCR1_MAX = TA1CCR0 * (VALUE - MIN_TEMP)/RANGE;  		//change duty cycle to the ith intensity level
-			TA1CCR2_MAX = TA1CCR0 * (MAX_TEMP - VALUE)/RANGE;	//change duty cycle to the ith intensity level
+		else {													//when temperature is in max and min range set previously
+			TA1CCR1_MAX = TA1CCR0 * (VALUE - MIN_TEMP)/RANGE;  	//set maximum brightness of red LED
+			TA1CCR2_MAX = TA1CCR0 * (MAX_TEMP - VALUE)/RANGE;	//set maximum brightness of blue LED
 		}
-		RED_STEP = TA1CCR1_MAX/12;
-		BLUE_STEP = TA1CCR2_MAX/12;
-		_bis_SR_register(LPM3_bits);  		//enter low power mode 3 and enable interrupt
+		RED_STEP = TA1CCR1_MAX/12;								//set step of brightness change for red LED
+		BLUE_STEP = TA1CCR2_MAX/12;								//set step of brightness change for blue LED
+		_bis_SR_register(LPM3_bits);  							//enter low power mode 3 and enable interrupt
 
 	}
 
@@ -102,17 +112,17 @@ void main(void){
 
 #pragma vector = WDT_VECTOR					//WDT interval mode interrupt. Frequency = 6000/512 = 11.72Hz
 __interrupt void WDT_ISR(void){				//can name the actual function anything
-	if (counter < 13) {
-		TA1CCR1 = TA1CCR1 + RED_STEP;  //change duty cycle to the ith intensity level
-		TA1CCR2 = TA1CCR2 + BLUE_STEP;	//change duty cycle to the ith intensity level
+	if (counter < 13) {						//for the first 12 counts
+		TA1CCR1 = TA1CCR1 + RED_STEP;  		//increase duty cycle of red LED
+		TA1CCR2 = TA1CCR2 + BLUE_STEP;		//increase duty cycle of blue LED
 	}
-	else  {
-		TA1CCR1 = TA1CCR1 - RED_STEP;  //change duty cycle to the ith intensity level
-		TA1CCR2 = TA1CCR2 - BLUE_STEP;	//change duty cycle to the ith intensity level
+	else  {									//for the remaining counts
+		TA1CCR1 = TA1CCR1 - RED_STEP;  		//decrease duty cycle of red LED
+		TA1CCR2 = TA1CCR2 - BLUE_STEP;		//decrease duty cycle of blue LED
 	}
-	if (counter > 23) {					//if statement to exit the ISA approx. 2 seconds a time (0.5Hz)
-		TA1CCR1 = 0;
-		TA1CCR2 = 0;
+	if (counter > 23) {						//if statement to exit the ISA approx. 2 seconds a time (0.5Hz) (11.72/24 = approx. 0.5)
+		TA1CCR1 = 0;						//set brightness of red LED back to zero
+		TA1CCR2 = 0;						//set brightness of blue LED back to zero
 		counter = 0;						//reset counter
 		_bic_SR_register_on_exit(LPM3_bits);//enter low power mode 3 and enable interrupt
 	}
