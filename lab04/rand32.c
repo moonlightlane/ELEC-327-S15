@@ -19,26 +19,25 @@
  */
 
 
-#inclue <stdio.h>
+#include <stdio.h>
 int rand32(int seed) {
-	char lfsr[5]; // value for linear feedback shift register
-	unsigned bit3; // third bit
-	unsigned bit5; // fifth bit
-	unsigned period = 0; 
-	int output; // integer value of the output
-	if (seed != 0) { // calculate the values for lfsr when seed is provided
-		lfsr[4] = seed%2;
-		lfsr[3] = (seed/2)%2;
-		lfsr[2] = (seed/4)%2;
-		lfsr[1] = (seed/8)%2;
-		lfsr[0] = (seed/16)%2;
-	}
-	else { // set lfsr initial state to 0x1D if seed is not provided
-		lfsr = {1,1,1,0,1}; // 0x1D in hex
+	static char lfsr[5]; // value for linear feedback shift register
+	static unsigned bit3; // third bit
+	static unsigned bit5; // fifth bit
+	static int output = 0; // integer value of the output
+	if (output == 0) {
+		if (seed != 0) { // calculate the values for lfsr when seed is provided
+			lfsr[4] = seed%2;
+			lfsr[3] = (seed/2)%2;
+			lfsr[2] = (seed/4)%2;
+			lfsr[1] = (seed/8)%2;
+			lfsr[0] = (seed/16)%2;
+		}
+		else { // return 0 if no seed is set
+			return 0;
+		}
 	}
 
-	do 
-	{
 		bit5 = lfsr[4]; // get bit5 and bit3 for xor function
 		bit3 = lfsr[2];
 		lfsr[4] = lfsr[3]; // shifting lfsr 1 bit to the right
@@ -47,9 +46,16 @@ int rand32(int seed) {
 		lfsr[1] = lfsr[0];
 		lfsr[0] = bit5 ^ bit3; // xor function
 		output = lfsr[0]*16 + lfsr[1]*8 + lfsr[2]*4 + lfsr[3]*2 + lfsr[4]-1; // convert to decimal output
-		printf("%d\n", output);
-		period ++;
-	} while (period < 31);
+	return output;
+}
 
-	return 0;
+void main () {
+	int seed = 29;
+	int idx = 0;
+	int answer;
+	while (idx < 33) {
+		answer = rand32(seed);
+		printf("%d\n",answer);
+		idx ++ ;
+	}
 }
