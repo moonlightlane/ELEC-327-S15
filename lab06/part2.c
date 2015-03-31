@@ -1,3 +1,29 @@
+/*
+ELEC 327 S15 Lab06: software debouncing and simon PCB
+Author: Zichao Wang
+Date  : March 30th, 2015
+
+This code is the 3rd part of the lab, which completes a simplified version
+of the simon game. In this implementation, the game makes use of 2 buttons,
+1 LED and 1 buzzer. The game proceeds as follows:
+
+1) 	default pattern is [1,2,1,1,2,2]. When you press the button in this 
+	sequence correctly, AND is faster than the previous sequence, the LED
+	becomes brighter and buzzer frequency becomes higher. If you do not press
+	as fast as or slower than the previous sequence, the LED and buzzer will
+	remain their previous brightness and frequency, respectively. The brightness 
+	for LED and frequency for buzzer are all 8 steps. After 8 correct sequence 
+	inputs, LED brightness and buzzer frequency all reach their respective maixmum,
+	and will not increase any more beyond this point.
+2)	When you press the pattern incorrectly, the LED and buzzer immediately
+	go off.
+3)	If you press the two buttons simultaneously for 2 seconds, the game is 
+	restarted.
+4)	If you press the two buttons simultaneously for 2 restart sequence (repeat 
+	step 3 twice), the reset mode is entered. In this mode, you can change the
+	default pattern by pressing the buttons to create a new sequence.
+*/
+
 
  
 #include "msp430g2553.h"
@@ -11,6 +37,8 @@ int Time = 0;
 int previousTime = 4096;
 int endOfSequence = 0;
 int startOfSequence = 0;
+int RSTCnt = 1;
+int counter = 0;
 
 /* button pattern variables */
 char pattern[] = {1,2,1,1,2,2}; // define pattern
@@ -91,7 +119,6 @@ void led_init() {
 /* initialize watchdog timer and interrupt */
 void WDT_init(){
 	WDTCTL = WDTPW | WDTHOLD; //WDT password + Stop WDT + detect RST button falling edge
-	//IFG1 &= ~WDTIFG; // Clear the WDT interrupt flags
 	IE1 |= WDTIE; // Enable the WDT interrupt
 	WDTCTL = WDT_MDLY_32;
 }
@@ -123,8 +150,6 @@ __interrupt void PORT1_ISR(void) {
 		 	}
  		}
  		P1IES ^= BIT3; // Toggle edge detect
- 		//IFG1 &= ~WDTIFG; // Clear the interrupt flag for the WDT
- 		//WDTCTL = WDT_MDLY_32; // Restart the WDT with the same NMI status as set by the NMI interrupt
  	}
  	/* interrupt routine for button P1.2 */
  	else { // add other port 1 interrupts
@@ -151,41 +176,73 @@ __interrupt void PORT1_ISR(void) {
 			 	}
  			}
  			P1IES ^= BIT2; // Toggle edge detect
- 			//IFG1 &= ~WDTIFG; // Clear the interrupt flag for the WDT
- 			//WDTCTL = WDT_MDLY_32; // Restart the WDT 
  		}
 	}
 }
       
-// WDT is used to debounce s1 and s2 by delaying the re-enable of the P1IE interrupts
-// and to time the length of the press
+/* WDT interrupt routine for update LED and buzzer, restart and reset pattern */
 #pragma vector = WDT_VECTOR
 __interrupt void wdt_isr(void) {
- 
  	P1IFG &= ~BIT3; // Clear the button interrupt flag
- 	P1IE |= BIT3; // Re-enable interrupt for the button on P1.3
+ 	P1IE |= BIT3; 	// Re-enable interrupt for the button on P1.3
  	P1IFG &= ~BIT2;
  	P1IE |= BIT2;
 
+ 	/* update LED and buzzer */
  	if (pointer == 1 & startOfSequence == 1) { // start of the sequence
- 		Time = 0;
- 		startOfSequence = 0;
+ 		Time = 0; 			// reset time
+ 		startOfSequence = 0;// reset start of sequence flag
  	}
- 	Time ++;
+ 	Time ++;	// increment time
  	if (pointer == 0 & endOfSequence == 1) { // end of the sequence
- 		endOfSequence = 0;
- 		if (Time < previousTime) {
+ 		endOfSequence = 0;	// reset end of sequence flag
+ 		if (Time < previousTime) { // if this sequence is pressed faster than the previous one
  			TA0CCR1 = TA0CCR0/step*(led_buzzer_pointer+1); // led increment brightness
 			if (TA0CCR1 >= PERIOD) {
-				TA0CCR1 = PERIOD;
-			} // set brightness to maximum if maximum is reached					
-		 	TA1CCR0 = periods[led_buzzer_pointer];
-		 	led_buzzer_pointer ++;
+				TA0CCR1 = PERIOD;	// set LED to brightest when it reaches maximum duty cycle
+			}					
+		 	TA1CCR0 = periods[led_buzzer_pointer]; // increment buzzer frequency
+		 	led_buzzer_pointer ++;	// go to next higher frequency
 		 	if (led_buzzer_pointer >= sizeof(periods)/sizeof*(periods)-1) {
-		 		led_buzzer_pointer = sizeof(periods)/sizeof*(periods)-1;
+		 		led_buzzer_pointer = sizeof(periods)/sizeof*(periods)-1; // set buzzer to highest frequency if highest frequency is reached
 		 	}
  		}
-		previousTime = Time;
+		previousTime = Time; // record time pressed for this sequence
  	}
-
+ 	/* restart the sequence */
+ 	if (RSTCnt<=7){
+		if ((P1IN & (BIT2+BIT3))==0x00) {
+			if(++counter==63){ 			// wait for 63*32 = 2016ms ~= 2s
+				// toggle LED
+				// reset everything here
+				P1OUT ^= BIT6;
+				counter=0;			
+				RSTCnt++;				
+				pointer=0;				
+				TA1CCR0=0;
+				led_buzzer_pointer=0;
+				startOfSequence=0;
+				endOfSequence = 0;
+				previousTime = 4096;
+			}
+		}
+		else{
+			// toggle LED and reset reset counter
+			P1OUT ^= BIT6;
+			RSTCnt=1;
+		}
+	}
+	else if(RSTCnt>7){                              //BONUS
+		if ((P1IN & (BIT2+BIT3))==0x00) {
+			P1OUT ^= BIT6;
+			// RESET PATTERN WANTED
+		}
+		else{
+			P1OUT ^= BIT6;
+		}
+		RSTCnt=1;
+	}
+	else{
+	}
+	
 }
