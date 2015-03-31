@@ -43,6 +43,8 @@ int counter = 0;
 /* button pattern variables */
 char pattern[] = {1,2,1,1,2,2}; // define pattern
 int pointer = 0; // pointer to loop through the pattern
+char newPattern[6]; // new pattern to be changed later in reset mode
+int index = 0;
 
 /* buzzer variables */
 float periods[] = {1000000/261.63,1000000/293.66,
@@ -210,39 +212,61 @@ __interrupt void wdt_isr(void) {
 		previousTime = Time; // record time pressed for this sequence
  	}
  	/* restart the sequence */
- 	if (RSTCnt<=7){
-		if ((P1IN & (BIT2+BIT3))==0x00) {
-			if(++counter==63){ 			// wait for 63*32 = 2016ms ~= 2s
-				// toggle LED
-				// reset everything here
-				P1OUT ^= BIT6;
-				counter=0;			
-				RSTCnt++;				
-				pointer=0;				
-				TA1CCR0=0;
-				led_buzzer_pointer=0;
-				startOfSequence=0;
-				endOfSequence = 0;
-				previousTime = 4096;
+	if ((P1IN & (BIT2+BIT3))==0x00) { // when two buttons are pressed at the same time
+		if(++counter==63){ 			// wait for 63*32 = 2016ms ~= 2s
+			// reset everything here
+			counter=0;			
+			RSTCnt++;				
+			pointer=0;				
+			TA1CCR0=0;
+			led_buzzer_pointer=0;
+			startOfSequence=0;
+			endOfSequence = 0;
+			previousTime = 4096;
+			// flash LED
+			TA0CCR1 = PERIOD;
+			__delay_cycles(10000);
+			TA0CCR1 = 0;
+		}
+	}
+	/* BONUS: programming mode */
+	if (RSTCnt >= 3){     
+		TA0CCR1 = PERIOD;
+		__delay_cycles(2000000);
+		TA0CCR1 = 0;
+		__delay_cycles(1000000);
+		TA0CCR1 = PERIOD;                         
+		while (index<=5) {
+			RSTCnt = 1;
+			// if pressed button S2
+			if (P1IFG & BIT3) {
+ 				P1IE &= ~BIT3; 				// Disable Button interrupt to avoid bounces
+ 				P1IFG &= ~BIT3; 			// Clear the interrupt flag for the button
+ 				if (P1IES & BIT3) { 		// Falling edge detected
+ 					pattern[index] = 2;
+ 					index ++;
+ 					TA0CCR1 = 0;
+ 					__delay_cycles(100000);
+ 					TA0CCR1 = PERIOD;
+ 				}
+ 				P1IES ^= BIT3; // Toggle edge detect
+ 			}
+ 			// if pressed button S1
+		 	else { // add other port 1 interrupts
+				if (P1IFG & BIT2) {
+		 			P1IE &= ~BIT2; 				// Disable Button interrupt
+		 			P1IFG &= ~BIT2; 			// Clear the interrupt flag
+		 			if (P1IES & BIT2) { 		// Falling edge detected
+		 				pattern[index] = 1;
+		 				index ++;
+		 				TA0CCR1 = 0;
+		 				__delay_cycles(100000);
+		 				TA0CCR1 = PERIOD;
+		 			}
+		 			P1IES ^= BIT2; // Toggle edge detect
+		 		}
 			}
 		}
-		else{
-			// toggle LED and reset reset counter
-			P1OUT ^= BIT6;
-			RSTCnt=1;
-		}
+		TA0CCR1 = 0;
 	}
-	else if(RSTCnt>7){                              //BONUS
-		if ((P1IN & (BIT2+BIT3))==0x00) {
-			P1OUT ^= BIT6;
-			// RESET PATTERN WANTED
-		}
-		else{
-			P1OUT ^= BIT6;
-		}
-		RSTCnt=1;
-	}
-	else{
-	}
-	
 }
